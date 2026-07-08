@@ -54,3 +54,10 @@ if ! command -v bw >/dev/null 2>&1; then
   chmod +x "$tmpdir/bw"
   sudo mv "$tmpdir/bw" /usr/local/bin/bw
 fi
+
+mkdir -p "${HOME}/.config/chezmoi"
+
+if [ ! -f "${HOME}/.config/chezmoi/key.txt" ]; then
+  bw get item "secret-key.txt" | jq -r '.notes' > "${HOME}/.config/chezmoi/key.txt"
+  chmod 600 "${HOME}/.config/chezmoi/key.txt"
+fi
