@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+{{- if ne .chezmoi.os "linux" }}
+exit 0
+{{- end }}
+
+set -euo pipefail
+
+if command -v apt-get >/dev/null 2>&1; then
+  sudo apt-get update
+
+  apt_packages=(
+  {{- range .packages.linux.apt }}
+    {{ . | quote }}
+  {{- end }}
+  )
+
+  missing_apt=()
+  for pkg in "${apt_packages[@]}"; do
+    if ! dpkg -s "$pkg" >/dev/null 2>&1; then
+      missing_apt+=("$pkg")
+    fi
+  done
+
+  if [ "${#missing_apt[@]}" -gt 0 ]; then
+    sudo apt-get install -y "${missing_apt[@]}"
+  fi
+fi
+
+if command -v flatpak >/dev/null 2>&1; then
+  flatpak_apps=(
+  {{- range .packages.linux.flatpak }}
+    {{ . | quote }}
+  {{- end }}
+  )
+
+  missing_flatpak=()
+  for app in "${flatpak_apps[@]}"; do
+    if ! flatpak info "$app" >/dev/null 2>&1; then
+      missing_flatpak+=("$app")
+    fi
+  done
+
+  if [ "${#missing_flatpak[@]}" -gt 0 ]; then
+    flatpak install -y flathub "${missing_flatpak[@]}"
+  fi
+fi
