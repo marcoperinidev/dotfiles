@@ -44,3 +44,13 @@ if command -v flatpak >/dev/null 2>&1; then
     flatpak install -y flathub "${missing_flatpak[@]}"
   fi
 fi
+
+if ! command -v bw >/dev/null 2>&1; then
+  tmpdir="$(mktemp -d)"
+  trap 'rm -rf "$tmpdir"' EXIT
+
+  wget "https://vault.bitwarden.com/download/?app=cli&platform=linux" -O "$tmpdir/bw.zip"
+  unzip -o "$tmpdir/bw.zip" -d "$tmpdir"
+  chmod +x "$tmpdir/bw"
+  sudo mv "$tmpdir/bw" /usr/local/bin/bw
+fi
