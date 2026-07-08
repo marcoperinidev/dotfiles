@@ -1,0 +1,13 @@
+key.txt
+*.age
+*.key
+*.lock
+*.boltdb
+chezmoistate.boltdb
+*.tmp
+*.bak
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
