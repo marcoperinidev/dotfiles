@@ -36,3 +36,7 @@ chezmoi apply
 
 ## VM / bootstrap
 ./install-bw.sh
+
+## dnwl chezmoi
+wget -qO- https://github.com/twpayne/chezmoi/releases/download/v2.71.0/chezmoi_2.71.0_linux_amd64.deb
+curl -fsLS https://github.com/twpayne/chezmoi/releases/download/v2.71.0/chezmoi_2.71.0_linux_amd64.deb
