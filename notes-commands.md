@@ -4,15 +4,15 @@
 ssh-keygen -t ed25519 -C "tuo@email" -f ~/.ssh/id_ed25519
 eval "$(ssh-agent -s)"
 ssh-add ~/.ssh/id_ed25519
-ssh -T git@github.com
 cat ~/.ssh/id_ed25519.pub
+ssh -T git@github.com
+
 
 ## Cambiare remote da HTTPS a SSH
 git remote -v
-git remote set-url origin git@github.com:OWNER/REPO.git
+git remote set-url origin git@github.com:marcoperinidev/dotfiles.git
+git remote set-url --push origin git@github.com:marcoperinidev/dotfiles.git
 git remote -v
-git push
-git pull
 
 ## Bitwarden CLI
 bw login
