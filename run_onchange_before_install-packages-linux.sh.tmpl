@@ -3,9 +3,27 @@
 exit 0
 {{- end }}
 
-set -euo pipefail
+set -u
+
+MISSING_FILE="${HOME}/pacchetti-mancanti.txt"
+FAILED_FILE="${HOME}/pacchetti-falliti.txt"
+
+mkdir -p "${HOME}/.config/chezmoi"
+: > "$MISSING_FILE"
+: > "$FAILED_FILE"
+
+log() {
+  printf '%s\n' "$*"
+}
+
+append_unique() {
+  local file="$1"
+  local value="$2"
+  grep -Fxq "$value" "$file" 2>/dev/null || echo "$value" >> "$file"
+}
 
 if command -v apt-get >/dev/null 2>&1; then
+  log "==> apt: update"
   sudo apt-get update
 
   apt_packages=(
@@ -14,16 +32,23 @@ if command -v apt-get >/dev/null 2>&1; then
   {{- end }}
   )
 
-  missing_apt=()
   for pkg in "${apt_packages[@]}"; do
-    if ! dpkg -s "$pkg" >/dev/null 2>&1; then
-      missing_apt+=("$pkg")
+    if dpkg -s "$pkg" >/dev/null 2>&1; then
+      log "[apt] già installato: $pkg"
+      continue
+    fi
+
+    if apt-cache show "$pkg" >/dev/null 2>&1; then
+      log "[apt] installo: $pkg"
+      if ! sudo apt-get install -y "$pkg"; then
+        log "[apt] fallito: $pkg"
+        append_unique "$FAILED_FILE" "apt:$pkg"
+      fi
+    else
+      log "[apt] assente nei repo di questa distro, salto: $pkg"
+      append_unique "$MISSING_FILE" "apt:$pkg"
     fi
   done
-
-  if [ "${#missing_apt[@]}" -gt 0 ]; then
-    sudo apt-get install -y "${missing_apt[@]}"
-  fi
 fi
 
 if command -v flatpak >/dev/null 2>&1; then
@@ -33,21 +58,47 @@ if command -v flatpak >/dev/null 2>&1; then
   {{- end }}
   )
 
-  missing_flatpak=()
   for app in "${flatpak_apps[@]}"; do
-    if ! flatpak info "$app" >/dev/null 2>&1; then
-      missing_flatpak+=("$app")
+    if flatpak info "$app" >/dev/null 2>&1; then
+      log "[flatpak] già installato: $app"
+      continue
+    fi
+
+    log "[flatpak] installo: $app"
+    if ! flatpak install -y flathub "$app"; then
+      log "[flatpak] non disponibile o installazione fallita: $app"
+      append_unique "$MISSING_FILE" "flatpak:$app"
     fi
   done
+fi
 
-  if [ "${#missing_flatpak[@]}" -gt 0 ]; then
-    flatpak install -y flathub "${missing_flatpak[@]}"
+if [ ! -f "${HOME}/.config/chezmoi/key.txt" ] && command -v bw >/dev/null 2>&1; then
+  if bw get item "secret-key.txt" >/dev/null 2>&1; then
+    bw get item "secret-key.txt" | jq -r '.notes' > "${HOME}/.config/chezmoi/key.txt"
+    chmod 600 "${HOME}/.config/chezmoi/key.txt"
+    log "==> chiave chezmoi salvata in ~/.config/chezmoi/key.txt"
+  else
+    log "==> item Bitwarden secret-key.txt non trovato, salto"
   fi
 fi
 
-mkdir -p "${HOME}/.config/chezmoi"
+sort -u "$MISSING_FILE" -o "$MISSING_FILE"
+sort -u "$FAILED_FILE" -o "$FAILED_FILE"
 
-if [ ! -f "${HOME}/.config/chezmoi/key.txt" ]; then
-  bw get item "secret-key.txt" | jq -r '.notes' > "${HOME}/.config/chezmoi/key.txt"
-  chmod 600 "${HOME}/.config/chezmoi/key.txt"
+echo
+log "===== RIEPILOGO ====="
+
+if [ -s "$MISSING_FILE" ]; then
+  log "Pacchetti/app mancanti salvati in: $MISSING_FILE"
+  cat "$MISSING_FILE"
+else
+  log "Nessun pacchetto/app mancante."
+fi
+
+echo
+if [ -s "$FAILED_FILE" ]; then
+  log "Pacchetti/app presenti ma falliti salvati in: $FAILED_FILE"
+  cat "$FAILED_FILE"
+else
+  log "Nessun pacchetto/app fallito in installazione."
 fi
