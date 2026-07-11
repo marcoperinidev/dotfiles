@@ -131,3 +131,16 @@ if [ -s "$FAILED_FILE" ]; then
   echo "Falliti:"
   cat "$FAILED_FILE"
 fi
+
+# ==========================================
+# 6. CAMBIO SHELL PREDEFINITA IN ZSH
+# ==========================================
+if command -v zsh >/dev/null 2&1; then
+  CURRENT_SHELL=$(getent passwd "$USER" | awk -F: '{print $7}')
+  if [ "CURRENT_SHELL" != "$(command -v zsh)" ]; then
+    echo "==> Cambio shell di default in zsh..."
+    sudo chsh -s "$(command -v zsh)" "$USER"
+  else
+    echo "==> La Shell di default è già zsh."
+  fi
+fi
