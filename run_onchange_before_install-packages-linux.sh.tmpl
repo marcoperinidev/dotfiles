@@ -5,9 +5,11 @@ exit 0
 
 set -u
 
-MISSING_FILE="${HOME}/pacchetti-mancanti.txt"
-FAILED_FILE="${HOME}/pacchetti-falliti.txt"
-mkdir -p "${HOME}/.config/chezmoi"
+OUTPUT_DIR="${HOME}/.local/state/chezmoi-install"
+MISSING_FILE="${OUTPUT_DIR}/pacchetti-mancanti.txt"
+FAILED_FILE="${OUTPUT_DIR}/pacchetti-falliti.txt"
+
+mkdir -p "$OUTPUT_DIR"
 : > "$MISSING_FILE"
 : > "$FAILED_FILE"
 
@@ -17,52 +19,94 @@ append_unique() {
   grep -Fxq "$value" "$file" 2>/dev/null || echo "$value" >> "$file"
 }
 
-install_apt_pkg() {
-  local pkg="$1"
+# ==========================================
+# 1. SETUP REPOSITORY APT (CHROME, VS CODE)
+# ==========================================
+if command -v apt-get >/dev/null 2>&1; then
+  echo "==> Configurazione repository di terze parti..."
+  sudo mkdir -p /etc/apt/keyrings
 
-  if apt-cache show "$pkg" >/dev/null 2>&1; then
+  # Google Chrome
+  if [ ! -f /etc/apt/sources.list.d/google-chrome.list ]; then
+    echo "[repo] Aggiungo Google Chrome..."
+    wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo gpg --dearmor --yes -o /etc/apt/keyrings/google-chrome.gpg
+    echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main" | sudo tee /etc/apt/sources.list.d/google-chrome.list > /dev/null
+  fi
+
+  # VS Code (code)
+  if [ ! -f /etc/apt/sources.list.d/vscode.list ]; then
+    echo "[repo] Aggiungo VS Code..."
+    wget -qO- https://packages.microsoft.com/keys/microsoft.asc | sudo gpg --dearmor --yes -o /etc/apt/keyrings/packages.microsoft.gpg
+    echo "deb [arch=amd64,arm64,armhf signed-by=/etc/apt/keyrings/packages.microsoft.gpg] https://packages.microsoft.com/repos/code stable main" | sudo tee /etc/apt/sources.list.d/vscode.list > /dev/null
+  fi
+
+  # Nota per TeamViewer/ProtonVPN: Loro richiedono lo scaricamento di un pacchetto .deb
+  # di configurazione iniziale. Per ora li lasciamo andare nei mancanti per semplicità.
+
+  echo "==> apt: update"
+  sudo apt-get update -y
+fi
+
+# ==========================================
+# 2. INSTALLAZIONE PACCHETTI APT
+# ==========================================
+if command -v apt-get >/dev/null 2>&1; then
+  apt_packages=(
+  {{- range .packages.linux.apt }}
+    {{ . | quote }}
+  {{- end }}
+  )
+
+  for pkg in "${apt_packages[@]}"; do
     if dpkg -s "$pkg" >/dev/null 2>&1; then
       echo "[apt] già installato: $pkg"
-    else
+      continue
+    fi
+
+    if apt-cache show "$pkg" >/dev/null 2>&1; then
       echo "[apt] installo: $pkg"
-      if ! sudo apt-get install -y "$pkg"; then
+      # DEBIAN_FRONTEND=noninteractive evita che apt si blocchi chiedendo input
+      if ! sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "$pkg"; then
         echo "[apt] fallito: $pkg"
         append_unique "$FAILED_FILE" "apt:$pkg"
       fi
+    else
+      echo "[apt] assente nei repo (ignorato): $pkg"
+      append_unique "$MISSING_FILE" "apt:$pkg"
     fi
-  else
-    echo "[apt] assente nei repo: $pkg"
-    append_unique "$MISSING_FILE" "apt:$pkg"
-  fi
-}
-
-install_flatpak_app() {
-  local app="$1"
-
-  if flatpak info "$app" >/dev/null 2>&1; then
-    echo "[flatpak] già installato: $app"
-  else
-    echo "[flatpak] installo: $app"
-    if ! flatpak install -y flathub "$app"; then
-      echo "[flatpak] fallito o assente: $app"
-      append_unique "$MISSING_FILE" "flatpak:$app"
-    fi
-  fi
-}
-
-if command -v apt-get >/dev/null 2>&1; then
-  sudo apt-get update
-  {{- range .packages.linux.apt }}
-  install_apt_pkg {{ . | quote }}
-  {{- end }}
+  done
 fi
 
+# ==========================================
+# 3. SETUP E INSTALLAZIONE FLATPAK
+# ==========================================
 if command -v flatpak >/dev/null 2>&1; then
+  echo "==> Configurazione repository Flatpak..."
+  # Senza questa riga, flatpak non sa dove trovare i pacchetti
+  sudo flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+
+  flatpak_apps=(
   {{- range .packages.linux.flatpak }}
-  install_flatpak_app {{ . | quote }}
+    {{ . | quote }}
   {{- end }}
+  )
+
+  for app in "${flatpak_apps[@]}"; do
+    if flatpak info "$app" >/dev/null 2>&1; then
+      echo "[flatpak] già installato: $app"
+    else
+      echo "[flatpak] installo: $app"
+      if ! sudo flatpak install -y flathub "$app"; then
+        echo "[flatpak] fallito o assente: $app"
+        append_unique "$MISSING_FILE" "flatpak:$app"
+      fi
+    fi
+  done
 fi
 
+# ==========================================
+# 4. BITWARDEN (CHIAVE CHEZMOI)
+# ==========================================
 if command -v bw >/dev/null 2>&1 && [ ! -f "${HOME}/.config/chezmoi/key.txt" ]; then
   if bw get item "secret-key.txt" >/dev/null 2>&1; then
     bw get item "secret-key.txt" | jq -r '.notes' > "${HOME}/.config/chezmoi/key.txt"
@@ -71,13 +115,19 @@ if command -v bw >/dev/null 2>&1 && [ ! -f "${HOME}/.config/chezmoi/key.txt" ]; 
   fi
 fi
 
+# ==========================================
+# 5. RIEPILOGO
+# ==========================================
 sort -u "$MISSING_FILE" -o "$MISSING_FILE"
 sort -u "$FAILED_FILE" -o "$FAILED_FILE"
 
 echo
 echo "===== RIEPILOGO ====="
-echo "Mancanti: $MISSING_FILE"
-cat "$MISSING_FILE" 2>/dev/null || true
-echo
-echo "Falliti: $FAILED_FILE"
-cat "$FAILED_FILE" 2>/dev/null || true
+if [ -s "$MISSING_FILE" ]; then
+  echo "Mancanti/Ignorati:"
+  cat "$MISSING_FILE"
+fi
+if [ -s "$FAILED_FILE" ]; then
+  echo "Falliti:"
+  cat "$FAILED_FILE"
+fi
